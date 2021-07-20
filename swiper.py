@@ -3,6 +3,13 @@ import win32ui
 from ctypes import windll
 from PIL import Image
 import re
+import time
+import cv2
+import pytesseract
+from pywinauto import Desktop
+import numpy as np
+from pynput.keyboard import Key, Controller
+import random
 
 class WindowMgr:
     """Encapsulates some calls to the winapi for window management"""
@@ -29,46 +36,130 @@ class WindowMgr:
         """put the window in the foreground"""
         win32gui.SetForegroundWindow(self._handle)
 
-hwnd = win32gui.FindWindow(None, 'shella - Discord')
 
+def save_image(hwnd):
+    left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+    width = right - left
+    height = bottom - top
+
+    hwndDC = win32gui.GetWindowDC(hwnd)
+    mfcDC  = win32ui.CreateDCFromHandle(hwndDC)
+    saveDC = mfcDC.CreateCompatibleDC()
+
+    saveBitMap = win32ui.CreateBitmap()
+    saveBitMap.CreateCompatibleBitmap(mfcDC, width, height)
+
+    saveDC.SelectObject(saveBitMap)
+
+    result = windll.user32.PrintWindow(hwnd, saveDC.GetSafeHdc(), 3)
+
+    bmpinfo = saveBitMap.GetInfo()
+    bmpstr = saveBitMap.GetBitmapBits(True)
+
+    im = Image.frombuffer(
+        'RGB',
+        (bmpinfo['bmWidth'], bmpinfo['bmHeight']),
+        bmpstr, 'raw', 'BGRX', 0, 1)
+
+    win32gui.DeleteObject(saveBitMap.GetHandle())
+    saveDC.DeleteDC()
+    mfcDC.DeleteDC()
+    win32gui.ReleaseDC(hwnd, hwndDC)
+
+    if result == 1:
+        return im
+
+def type_string(kb, s, press_enter):
+    for i in s:
+        kb.press(i)
+        kb.release(i)
+    if press_enter:
+        kb.press(Key.enter)
+        kb.release(Key.enter)
+
+
+
+def filter_image(img):
+    return img
+
+
+pytesseract.pytesseract.tesseract_cmd = r'D:\\Programs\\Tesseract\\tesseract.exe'
+
+
+
+img = cv2.imread("broken9466.png")
+kernel = np.ones((2, 2),np.float32)/4
+dst = cv2.filter2D(img,-1,kernel)
+cv2.imshow("test", dst)
+cv2.waitKey()
+cv2.destroyAllWindows()
+text = pytesseract.image_to_string(img)
+print(text)
+
+input()
+
+
+
+
+windows = Desktop(backend="uia").windows()
+discord_title = [w.window_text() for w in windows if "Discord" in w.window_text()][0]
+hwnd = win32gui.FindWindow(None, discord_title)
 w = WindowMgr()
-w.find_window_wildcard(".*Discord.*")
-w.set_foreground()
-# Change the line below depending on whether you want the whole window
-# or just the client area. 
-#left, top, right, bot = win32gui.GetClientRect(hwnd)
-left, top, right, bottom = win32gui.GetWindowRect(hwnd)
-width = right - left
-height = bottom - top
+w.find_window_wildcard(discord_title)
+keyboard = Controller()
 
-hwndDC = win32gui.GetWindowDC(hwnd)
-mfcDC  = win32ui.CreateDCFromHandle(hwndDC)
-saveDC = mfcDC.CreateCompatibleDC()
 
-saveBitMap = win32ui.CreateBitmap()
-saveBitMap.CreateCompatibleBitmap(mfcDC, width, height)
+for i in range(20000):
+    img = save_image(hwnd)
+    # img = cv2.imread("test.png")
+    text = pytesseract.image_to_string(img)
+    if "to claim it!" in text:
+        print("MATCH FOUND")
+        # Filter image
+        # img = filter_image(img)
+        img_array = np.asarray(img)
+        img_rgb = cv2.cvtColor(img_array, cv2.COLOR_BGR2RGB)
+        # crop_img = img_rgb[100:990, 350:720]
+        crop_img = img_rgb[850:990, 350:720]
 
-saveDC.SelectObject(saveBitMap)
+        lower = np.array([180, 180, 180], dtype = "uint16")
+        upper = np.array([255, 255, 255], dtype = "uint16")
 
-# Change the line below depending on whether you want the whole window
-# or just the client area. 
-#result = windll.user32.PrintWindow(hwnd, saveDC.GetSafeHdc(), 1)
-result = windll.user32.PrintWindow(hwnd, saveDC.GetSafeHdc(), 3)
-print(result)
+        filtered_image = cv2.inRange(crop_img, lower, upper)
 
-bmpinfo = saveBitMap.GetInfo()
-bmpstr = saveBitMap.GetBitmapBits(True)
+        # cv2.imshow("IMAGE", filtered_image)
+        # cv2.waitKey()
+        # cv2.destroyAllWindows()
+        # text = pytesseract.image_to_string(crop_img)
+        # print(text)
+        # input()
+        text2 = pytesseract.image_to_string(filtered_image)
 
-im = Image.frombuffer(
-    'RGB',
-    (bmpinfo['bmWidth'], bmpinfo['bmHeight']),
-    bmpstr, 'raw', 'BGRX', 0, 1)
+        matches = re.findall(r"\b\w{4}\b", text2)
+        
+        if len(matches) > 0:
+            print(matches)
+            code = matches[-1].lower()
+            print(code)
+            type_string(keyboard, "!claim " + code, True)
+            cv2.imwrite(code + ".png", filtered_image)
 
-win32gui.DeleteObject(saveBitMap.GetHandle())
-saveDC.DeleteDC()
-mfcDC.DeleteDC()
-win32gui.ReleaseDC(hwnd, hwndDC)
+        else:
+            print("NO CODES FOUND")
+            cv2.imwrite("broken" + str(random.randint(1, 10000)) + ".png", filtered_image)
 
-if result == 1:
-    #PrintWindow Succeeded
-    im.save("test.png")
+            text = pytesseract.image_to_string(crop_img)
+            matches = re.findall(r"\b\w{4}\b", text)
+
+        
+        print(text2)
+
+        # cv2.imshow("IMAGE", filtered_image)
+        # cv2.waitKey()
+        # cv2.destroyAllWindows()
+
+        time.sleep(60)
+
+    time.sleep(0.1)
+
+    # w.set_foreground()
